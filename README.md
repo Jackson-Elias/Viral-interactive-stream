@@ -1,6 +1,6 @@
 # Spektral Krew — Livestream Simulator
 
-A self-contained HTML tool for running **Viral** (the Call of Cthulhu scenario) with a live, reactive "streaming chat" as a prop at the table. No install, no server, no internet connection required — everything (emotes, sounds, images) is embedded directly in the file. Just open it in a browser.
+A self-contained HTML tool for running **Viral** (the Call of Cthulhu scenario) with a live, reactive "streaming chat" as a prop at the table. Everything (emotes, sounds, images) is embedded directly in the file. Just open it in a browser.
 
 ## Quick start
 
@@ -24,13 +24,13 @@ If you only have one screen, you can also just use the single window and click *
 
 Chat is generated automatically and constantly adapts to two independent settings you control:
 
-- **Location** (left panel) — sets the *baseline* chat: text pulled from a pool written specifically for wherever the investigators currently are (14 story locations, plus two special end-game states — see below). A few emotes get mixed in naturally.
-- **Mood** (below it) — an optional *overlay* on top of the location chat. Pick a mood and a second, faster stream of reactions (mostly emotes, some text) layers on top — the busier chat gets, the more obviously something is happening.
+- **Location** — sets the *baseline* chat: text pulled from a pool written specifically for wherever the investigators currently are (14 story locations, plus two special end-game states — see below). A few emotes get mixed in naturally.
+- **Mood** — an optional *overlay* on top of the location chat. Pick a mood and a second, faster stream of reactions (mostly emotes, some text) layers on top — the busier chat gets, the more obviously something is happening. 
   - **Normal** = no overlay, just the calm location chat.
   - **Hype, Cool, Panicked, Scared, Spotted Smth, Fighting, RIP, Sad** run at full speed.
   - Everything else (Hacking/Tech, Thinking, Weird, Tucking In Bed, Horny, Fake/CGI) runs a bit calmer — roughly 85% mood content / 15% location content.
   - **Boring** is deliberately slow and drains viewers the whole time it's active — good for genuinely dead moments.
-  - **Fake/CGI** is chat accusing the crew of faking everything — useful when players start hamming it up.
+  - **Fake/CGI** is chat accusing the crew of faking everything.
 
 Location and Mood are independent — pick a location once, then swap moods freely as the scene develops without losing your place in the story.
 
@@ -51,9 +51,9 @@ Three dedicated one-click triggers below the mood grid:
 
 ## Viewers & Subscribers
 
-- Both numbers drift naturally over time rather than jumping around.
+- Both numbers drift naturally over time linked to the location.
 - **Viewers** ease toward an "attractor" value — each location has its own default, shown and editable live in the control panel. Mood affects the drift too (Hype/Cool/Fighting pull it up, Sad/RIP/Scared/Panicked/Boring pull it down).
-- **Subscribers** never decrease — the attractor only ever ratchets upward, though the actual displayed number wobbles gently around it rather than sitting frozen. You can also type an exact subscriber count directly if you need to set a specific number.
+- **Subscribers** never decrease — the attractor only ever ratchets upward, though the actual displayed number wobbles gently around it. You can also type an exact subscriber count directly if you need to set a specific number.
 - The little spinner arrows step Viewers by 100 and Subs by 1,000.
 
 ## Other controls
