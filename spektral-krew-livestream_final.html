@@ -321,7 +321,9 @@
   #donation-banner{
     position:absolute;
     top:70px; left:50%;
-    transform:translate(-50%,-160%) scale(0.9);
+    transform:translate(-50%,-180%) scale(0.9);
+    opacity:0;
+    visibility:hidden;
     background:linear-gradient(135deg,#1a1206,#0b0904);
     border:1px solid var(--gold);
     box-shadow:0 0 30px rgba(255,207,92,0.35), inset 0 0 20px rgba(255,207,92,0.08);
@@ -330,10 +332,19 @@
     text-align:center;
     z-index:60;
     min-width:320px;
-    transition:transform 0.45s cubic-bezier(.2,1.4,.4,1), box-shadow 0.3s ease;
+    transition:
+      transform 0.45s cubic-bezier(.2,1.4,.4,1),
+      opacity 0.2s ease,
+      visibility 0s linear 0.45s,
+      box-shadow 0.3s ease;
     pointer-events:none;
   }
-  #donation-banner.show{ transform:translate(-50%,0) scale(1); }
+  #donation-banner.show{
+    transform:translate(-50%,0) scale(1);
+    opacity:1;
+    visibility:visible;
+    transition-delay:0s;
+  }
   #donation-banner.tier-2{ box-shadow:0 0 45px rgba(255,207,92,0.55), inset 0 0 24px rgba(255,207,92,0.12); }
   #donation-banner.tier-3{
     border-color:#ffe38a;
@@ -593,6 +604,14 @@
   body.controller-mode #controller-heading{
     display:block;
   }
+  body.display-mode #control,
+  body.display-mode #toggle-panel,
+  body.display-mode #popout-controller{
+    display:none;
+  }
+  body.display-mode #stream{
+    border-right:0;
+  }
   label.small{ display:block; font-size:10px; color:var(--phos-dim); margin-bottom:5px; letter-spacing:0.06em; text-transform:uppercase;}
   .hint{ font-size:10.5px; color:#4a5c4d; margin-top:4px; line-height:1.4; }
   #sound-toggle{
@@ -605,6 +624,34 @@
     margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--line);
   }
   #status-line span{ color:#eafff0; font-weight:bold; }
+
+  .pause-btn {
+     grid-column: 1 / -1;
+     width: 100%;
+     padding: 10px;
+     margin-bottom: 4px;
+     background: #241b06;
+     border: 1px solid var(--gold);
+     color: var(--gold);
+     border-radius: 3px;
+     font-family: inherit;
+     font-size: 12px;
+     font-weight: bold;
+     letter-spacing: 0.08em;
+     text-transform: uppercase;
+     cursor: pointer;
+   }
+
+   .pause-btn:hover {
+     background: #3a2b0a;
+   }
+
+   .pause-btn.paused {
+      background: rgba(95, 251, 143, 0.12);
+      border-color: var(--phos);
+      color: #eafff0;
+    }
+
 </style>
 </head>
 <body>
@@ -690,9 +737,11 @@
     <div id="controller-heading">Spektral Krew — Controller</div>
     <div class="ctl-section">
       <label id="sound-toggle"><input type="checkbox" id="sound-enabled" checked> Sound Effects On</label>
-      <div id="status-line">Currently: <span id="status-loc">Weeping Bridge</span> · <span id="status-mode">Normal</span></div>
+      <div id="status-line">Currently: <span id="status-loc">Stream Starting Soon</span> · <span id="status-mode">Normal</span></div>
       <div class="ctl-title">Location</div>
       <div class="mood-grid" id="location-grid">
+        <button class="pause-btn" id="btnPause" aria-pressed="false">⏸ Pause Simulation</button>
+        <button class="mood-btn loc-btn" data-loc="prestream">Before Stream</button>
         <button class="mood-btn loc-btn" data-loc="bridge">Weeping Bridge</button>
         <button class="mood-btn loc-btn" data-loc="grove">Lemon Grove</button>
         <button class="mood-btn loc-btn" data-loc="outside">Outside (Wandering)</button>
@@ -800,9 +849,25 @@
 <script>
 const urlParams = new URLSearchParams(location.search);
 const isController = urlParams.get('controller') === '1';
+const isDisplay = urlParams.get('display') === '1';
 let syncChannel = null;
 try { syncChannel = new BroadcastChannel('spektral-krew-sync'); } catch(e){ syncChannel = null; }
 if(isController) document.body.classList.add('controller-mode');
+if(isDisplay) document.body.classList.add('display-mode');
+
+let lanBroadcastQueue = Promise.resolve();
+function broadcastLanEvent(type, payload){
+  if(isController || isDisplay || location.protocol === 'file:') return;
+  lanBroadcastQueue = lanBroadcastQueue.then(function(){
+    return fetch('/broadcast', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:type, payload:payload})
+    });
+  }).catch(function(error){
+    console.warn('LAN display sync failed:', error);
+  });
+}
 
 const chatEl = document.getElementById('chat');
 const viewerEl = document.getElementById('viewer-count');
@@ -815,12 +880,12 @@ const videoCol = document.getElementById('video-col');
 const flashEl = document.getElementById('flash');
 const soundEnabled = document.getElementById('sound-enabled');
 
-let viewers = 1204;
+let viewers = 250;
 let subs = 890421;
 let viewerAttractor = 244; // the live target viewers eases toward — separate from each location's fixed default
 let subsAttractor = 890421; // never decreases; actual subs wobbles around this
 let totalDonated = 0;
-let currentLocation = 'bridge';
+let currentLocation = 'prestream';
 let currentMood = 'normal';
 let locationTimer = null;
 let moodTimer = null;
@@ -891,7 +956,8 @@ function playGlitchNoise(duration){
   }
 }
 const glitchAudioEl = document.getElementById('glitch-audio');
-function playGlitchAudio(){
+function playGlitchAudio(fromRemote){
+  if(!fromRemote && !isController) broadcastLanEvent('effect', {name:'glitch-audio'});
   if(isController || !soundEnabled.checked) return;
   try{
     glitchAudioEl.currentTime = 0;
@@ -900,7 +966,8 @@ function playGlitchAudio(){
   }catch(e){}
 }
 
-function playDonationChime(tier){
+function playDonationChime(tier, fromRemote){
+  if(!fromRemote && !isController) broadcastLanEvent('effect', {name:'donation-chime', tier:tier});
   if(isController || !soundEnabled.checked) return;
   const ctx = getCtx();
   const notes = tier >= 3 ? [523.25, 659.25, 783.99, 1046.5] : tier >= 2 ? [523.25, 659.25, 783.99] : [659.25, 987.77];
@@ -926,7 +993,8 @@ function playDonationChime(tier){
     osc2.start(); osc2.stop(ctx.currentTime+0.6);
   }
 }
-function playDropThud(){
+function playDropThud(fromRemote){
+  if(!fromRemote && !isController) broadcastLanEvent('effect', {name:'drop-thud'});
   if(isController || !soundEnabled.checked) return;
   const ctx = getCtx();
   const osc = ctx.createOscillator();
@@ -940,14 +1008,80 @@ function playDropThud(){
 }
 
 const USERNAME_POOL = [
-  "xXGh0stH_nterXx","MayaFan_22","tinfoilTristan","itsRavenn","SkepticSam","paranormalpaula",
-  "deep_state_dana","CthulhuCultLARP","nightvision_nate","believer4life","EmLavigneStan",
-  "ProudfootSimp","StaticNoise99","glow_worm","hollow_earth_hank","VHS_Vera","salt_circle_steph",
-  "watching_from_ohio","3am_thoughts","backrooms_bailey","LurkerLarry","chat_is_this_real",
-  "MonkOrder_Fan","IslandTruther","doomscrollDina"
+    "xXGh0stH_nterXx","MayaFan_22","tinfoilTristan","itsRavenn","SkepticSam","paranormalpaula",
+    "deep_state_dana","CthulhuCultLARP","nightvision_nate","believer4life","EmLavigneStan",
+    "ProudfootSimp","StaticNoise99","glow_worm","hollow_earth_hank","VHS_Vera","salt_circle_steph",
+    "watching_from_ohio","3am_thoughts","backrooms_bailey","LurkerLarry","chat_is_this_real",
+    "MonkOrder_Fan", "IslandTruther", "doomscrollDina", "basement_oracle", "batteryAt12Percent",
+    "beanieCryptid", "behind_you_bro", "blair_witcher", "bonezone_ben", "cameraThree", "casual_occultist",
+    "cereal_at_midnight", "CertifiedLurker", "chatMovesTooFast", "coldspot_carl", "cursedJPEG",
+    "darkmode_dan", "dontSplitTheParty", "doorWasAlreadyOpen", "EMF_Enjoyer", "flashlight_fred",
+    "foggywindow", "foundFootageFan", "ghosted_again", "ghoulfriend_91", "graveyard_shift",
+    "headphones_required", "hex_and_the_city", "island_wifi", "just_one_more_room", "KeepTheCameraRolling",
+    "lastKnownSignal", "literally_a_skeptic", "lowBatteryLegend", "midnightMod", "nope_rope",
+    "NotPossessedYet", "paranormal_pete", "pleaseTurnAround", "ProudfootDefenseSquad",
+    "ritualEnjoyer", "SaltCircleMain", "signal_lost_again", "sleepIsOptional", "StaticEnjoyer",
+    "subscribedAt3AM", "theDoorMoved", "totallyNotAWatcher", "UnpaidExorcist", "VHSafterdark",
+    "whatWasThatNoise", "wifi_poltergeist", "windowWatcher", "wrongTurnGaming", "YouTubeArchaeologist"
 ];
 
 const LOCATIONS = {
+  prestream: {
+    label: "Stream Starting Soon",
+    viewers: 200, subs: 890421, pace: 2400,
+    normal: [
+      "first","we are so back","anyone know what tonight's location is",
+      "been waiting all week for this","starting soon screen has me hyped already",
+      "roll call chat where is everyone watching from","did Marco post any hints",
+      "I heard this one is supposed to be their biggest stream yet",
+      "notifications actually worked for once","chat is moving already and they aren't even live",
+      "calling it now something is going to go wrong tonight",
+      "please tell me they brought enough batteries this time",
+      "who else has snacks ready","I have been refreshing for ten minutes",
+      "the music on this waiting screen is kind of ominous",
+      "mods pin the location when we find out","do we know if the whole crew is there",
+      "Marco said this place was off limits right","new viewers picked a wild night to show up",
+      "I convinced three friends to watch this one","prediction: someone gets separated again",
+      "no spoilers if you saw the teaser","the countdown energy is immaculate",
+      "why do I feel nervous and nothing has happened yet",
+      "chat behave when they go live challenge impossible",
+      "please test the audio before starting this time","I hope Maya has the night vision camera",
+      "someone said island in the comments is that true",
+      "this better not get taken down halfway through",
+      "how many people are lurking right now","sub count is climbing before they even start",
+      "I am watching with all the lights off","headphones on this is going to be a mistake",
+      "the waiting is somehow making it creepier",
+      "five bucks says the signal dies tonight","come on Marco hit the live button",
+      "chat is ready whenever you are","SPEKTRAL KREW SPEKTRAL KREW SPEKTRAL KREW",
+      "any second now", "okay everyone shut up I think it is starting",
+      "EARLY GANG WHERE U AT", "chat wake up its almost time",
+      "how are 1k people already here 😭", "mods leak the location pls",
+      "marco marco marco marco", "anybody else hear that static or is it just me",
+      "im calling it now corrina carries this episode", "first stream ive caught live lets goooo",
+      "been sitting here since the notif dropped", "the waiting screen music kinda slaps ngl",
+      "༼ つ ◕_◕ ༽つ GIVE STREAM ༼ つ ◕_◕ ༽つ", "where is the krew tonight chat",
+      "audio check audio check 1 2 spooky", "LETS FUCKING GOOOOO",
+      "they better not start while im getting snacks", "corrina gunna cry frfr",
+      "my friend said this channel was fake prove him wrong lol", "this chat is about to be completely unhinged",
+      "20 gifted if marco actually goes inside first", "why did the viewer count just jump like that",
+      "any island locals in chat rn 👀", "i have a bad feeling abt this one",
+      "WHO ELSE SAW THE DELETED TEASER", "no way they actually got permission to film there",
+      "mods are being suspiciously quiet", "༼ つ ◉_◉ ༽つ SUMMON THE KREW",
+      "imagine the stream starts with CONNECTION LOST", "bruh ive refreshed like six times",
+      "phone charged headphones ready lights OFF", "chat predictions: signal loss within 30 mins",
+      "hope they fixed the night vision cam", "my cat is staring at the speakers already 💀",
+      "new episode new terrible decisions", "LETS GOOOOO START THE STREAM",
+      "not the ominous loading screen 😭", "who brought the salt circle this time",
+      "marco said five minutes like twenty mins ago", "stream starting soon™",
+      "everyone type F if the equipment breaks tonight", "this many viewers before live is actually wild",
+      "i swear something moved behind the logo", "cant wait to regret watching this at 2am",
+      "👁️👁️👁️ we are watching", "chat moving so fast nobody will know im scared",
+      "pls tell me proudfoot brought extra flashlights", "the vibes are already cursed",
+      "STARTING SOON COPIUM", "did anyone clip the weird sound just now",
+      "my wifi better not betray me tonight", "if they split up again im unsubbing (lying)",
+      "okay shhhhh I THINK ITS STARTING", "POGGGG CAMERA JUST FLICKERED"
+    ]
+  },
   bridge: {
     label: "The Weeping Bridge",
     viewers: 244, subs: 890421, pace: 3000,
@@ -1854,12 +1988,17 @@ function emoteBurst(mood, count){
 // a broad "reaction" emote set, drawn from across moods, used to lightly flavor location text
 const REACTION_EMOTES = ["Pog","Hmm","KEKBrows","OMEGALUL","SUSSY","HUH","Weirdge","monkaW","ezz","YEP","Chatting","5Head"];
 
-function locationMessage(loc){
-  const text = randomFrom(loc.normal);
-  if(Math.random() < 0.15){
-    return text + ' ' + emoteImg(randomFrom(REACTION_EMOTES));
-  }
-  return text;
+function locationMessage(loc) {
+
+    if (Math.random() < SPAM_CHANCE) {
+        return randomFrom(SPAM_MESSAGES);
+    }
+
+    const text = randomFrom(loc.normal);
+    if(Math.random() < 0.15){
+       return text + ' ' + emoteImg(randomFrom(REACTION_EMOTES));
+    }
+    return text;
 }
 
 
@@ -1887,7 +2026,38 @@ const GENERIC_POOL = [
   "POGGERS this stream never disappoints","ok this is scuffed but in the best way",
   "chat we are NOT coping right now, this is real","based crew fr fr",
   "no cap best stream this year","W stream, no notes","this is peak content, certified W"
-];
+    ];
+
+const SPAM_CHANCE = 0.05;
+
+const SPAM_MESSAGES = [
+    "🔥 CHEAP FOLLOWERS AT VIEWBOOST DOT EXAMPLE 🔥",
+    "hey guys im live too come watch me instead",
+    "check out my paranormal channel link in bio",
+    "FREE SUBS FREE SUBS FREE SUBS totally real",
+    "small streamer here follow 4 follow???",
+    "buying followers is NOT a scam trust me bro",
+    "MY NEW GHOST VIDEO JUST DROPPED 👻",
+    "mods pls let me post my channel just once",
+    "come watch my stream we have better cameras lol",
+    "🎁 CLICK MY PROFILE FOR A FREE GIVEAWAY 🎁",
+    "selling authentic haunted dolls dm me",
+    "Use code GHOSTBRO for 3% off flashlights",
+    "day 14 of asking Marco to collab with my channel",
+    "follow me and ill follow back instantly",
+    "🚨 WANT MORE VIEWERS??? CHECK MY BIO 🚨",
+    "my cousin makes better ghost content @SpookyDerekLive",
+    "SUBSCRIBE TO MY YOUTUBE I POST DAILY SHORTS",
+    "not spam but please check out my mixtape",
+    "professional aura cleansing only $49.99 dm now",
+    "mods deleted my link so check my username instead",
+    "⚡ GET 10,000 REAL VIEWERS OVERNIGHT ⚡",
+    "im giving away a haunted xbox at 500 followers",
+    "JOIN MY DISCORD FOR LEAKED SPEKTRAL KREW CLIPS",
+    "any streamers need logos? commissions open btw",
+    "this stream sponsored by ME please follow",
+    "join my onlyghosts, link in bio"
+    ];
 
 const PANIC_POOL = [
   "WAIT WHAT'S HAPPENING","OMG OMG OMG","IS EVERYONE OKAY",
@@ -1972,6 +2142,55 @@ const GLITCH_REACTIONS = [
   "why did the audio do that"
 ];
 
+let simulationPaused = false;
+const pauseButton = document.getElementById('btnPause');
+
+pauseButton.addEventListener('click', function () {
+    if (simulationPaused) {
+        resumeSimulation();
+        pauseButton.textContent = '⏸ Pause Auto Activity';
+        pauseButton.classList.remove('paused');
+        pauseButton.setAttribute('aria-pressed', 'false');
+    }
+    else {
+        pauseSimulation();
+        pauseButton.textContent = '▶ Resume Auto Activity';
+        pauseButton.classList.add('paused');
+        pauseButton.setAttribute('aria-pressed', 'true');
+    }
+});
+
+function pauseSimulation() {
+    simulationPaused = true;
+    stopAllTimers();
+
+    if (donationTimer) {
+        clearTimeout(donationTimer);
+    }
+    donationTimer = null;
+}
+
+function resumeSimulation() {
+    simulationPaused = false;
+    restartTimersForCurrentLocation();
+}
+
+function restartTimersForCurrentLocation() {
+    if (currentLocation === 'collapse') {
+        collapseErrorTick();
+        ultimaTimer = setTimeout(
+            collapseUltimaTick,
+            45000 + Math.random() * 90000
+        );
+        scheduleCollapseGlitch();
+    } else if (currentLocation === 'catacombs') {
+        scheduleCollapseGlitch();
+    } else {
+        locationTick();
+        if (currentMood !== 'normal') moodTick();
+        scheduleDonationTick();
+    }
+}
 
 function ts(){
   const d = new Date();
@@ -1985,7 +2204,8 @@ function userColor(name){
   return "hsl(" + hue + ", 65%, 62%)";
 }
 
-function addMessage(opts){
+function addMessage(opts, fromRemote){
+  if(!fromRemote) broadcastLanEvent('chat', opts);
   const user = opts.user, text = opts.text, type = opts.type || 'chat';
   const div = document.createElement('div');
   const glitch = Date.now() < glitchUntil;
@@ -2049,12 +2269,16 @@ function scheduleDonationTick(){
   donationTimer = setTimeout(passiveDonationTick, jittered);
 }
 
-function passiveDonationTick(){
-  const maxAmount = MOOD_DONATION_MAX_AMOUNT[currentMood] || 10;
-  const amount = 1 + Math.floor(Math.random()*maxAmount); // $1 up to the mood's max (default $10)
-  const name = randomFrom(USERNAME_POOL);
-  addPassiveDonation(name, amount);
-  scheduleDonationTick(); // reschedule using whatever viewers/mood are current by then
+function passiveDonationTick() {
+
+    if (simulationPaused) return;
+
+    const maxAmount = MOOD_DONATION_MAX_AMOUNT[currentMood] || 10;
+    const amount = 1 + Math.floor(Math.random()*maxAmount); // $1 up to the mood's max (default $10)
+    const name = randomFrom(USERNAME_POOL);
+
+    addPassiveDonation(name, amount);
+    scheduleDonationTick(); // reschedule using whatever viewers/mood are current by then
 }
 
 // Location tick gets throttled for the "default" 85/15 tier, plus boring, so the mood pool
@@ -2065,15 +2289,20 @@ const LOCATION_SLOWDOWN = {
   tuckin: 1.9, eatlemon: 1.9, morgue: 1.9
 };
 
-function locationTick(){
-  if(currentMood === 'megahype') return; // megahype is 100% mood pool — the location layer is suspended entirely
-  const loc = LOCATIONS[currentLocation];
-  if(!loc) return;
-  addMessage({user: randomFrom(USERNAME_POOL), text: locationMessage(loc)});
-  driftViewers();
-  const slow = LOCATION_SLOWDOWN[currentMood] || 1;
-  const interval = currentBasePace() * slow * (0.6 + Math.random()*0.8);
-  locationTimer = setTimeout(locationTick, interval);
+function locationTick() {
+
+    if (simulationPaused) return;
+
+    if(currentMood === 'megahype') return; // megahype is 100% mood pool — the location layer is suspended entirely
+
+    const loc = LOCATIONS[currentLocation];
+    if(!loc) return;
+
+    addMessage({ user: randomFrom(USERNAME_POOL), text: locationMessage(loc) });
+    driftViewers();
+    const slow = LOCATION_SLOWDOWN[currentMood] || 1;
+    const interval = currentBasePace() * slow * (0.6 + Math.random()*0.8);
+    locationTimer = setTimeout(locationTick, interval);
 }
 
 // Hype/Cool/Panicked/Scared/Spotted/Fighting/RIP/Sad stay at full speed (default 0.25, left undefined here).
@@ -2085,14 +2314,19 @@ const MOOD_PACE_MULT = {
   tuckin: 0.336, eatlemon: 0.336, morgue: 0.336
 };
 
-function moodTick(){
-  const loc = LOCATIONS[currentLocation];
-  if(!loc || currentMood === 'normal') return;
-  addMessage({user: randomFrom(USERNAME_POOL), text: moodMessage(currentMood)});
-  driftViewers();
-  const mult = MOOD_PACE_MULT[currentMood] !== undefined ? MOOD_PACE_MULT[currentMood] : 0.25;
-  const interval = currentBasePace() * mult * (0.6 + Math.random()*0.8);
-  moodTimer = setTimeout(moodTick, interval);
+function moodTick() {
+
+    if (simulationPaused) return;
+
+    const loc = LOCATIONS[currentLocation];
+
+    if (!loc || currentMood === 'normal') return;
+
+    addMessage({ user: randomFrom(USERNAME_POOL), text: moodMessage(currentMood) });
+    driftViewers();
+    const mult = MOOD_PACE_MULT[currentMood] !== undefined ? MOOD_PACE_MULT[currentMood] : 0.25;
+    const interval = currentBasePace() * mult * (0.6 + Math.random()*0.8);
+    moodTimer = setTimeout(moodTick, interval);
 }
 
 function stopMoodTimer(){
@@ -2100,55 +2334,74 @@ function stopMoodTimer(){
   moodTimer = null;
 }
 
-function collapseErrorTick(){
-  // Almost every attempt to comment just fails outright — 90% one message, 10% the other.
-  const text = Math.random() < 0.9 ? '-- ERROR 401: could not send --' : '-- trying to reconnect... --';
-  addMessage({text: text, type:'system'});
-  errorTimer = setTimeout(collapseErrorTick, 3000 + Math.random()*5000);
+function collapseErrorTick() {
+
+    if (simulationPaused) return;
+
+    // Almost every attempt to comment just fails outright — 90% one message, 10% the other.
+    const text = Math.random() < 0.9 ? '-- ERROR 401: could not send --' : '-- trying to reconnect... --';
+    addMessage({text: text, type:'system'});
+    errorTimer = setTimeout(collapseErrorTick, 3000 + Math.random()*5000);
 }
 
-function collapseUltimaTick(){
-  // UltimaUnum is the only voice that gets through, rarely, urging them on in Latin.
-  addMessage({user:'UltimaUnum', text: randomFrom(LATIN_URGING)});
-  ultimaTimer = setTimeout(collapseUltimaTick, 60000 + Math.random()*180000);
+function collapseUltimaTick() {
+
+    if (simulationPaused) return;
+
+    // UltimaUnum is the only voice that gets through, rarely, urging them on in Latin.
+    addMessage({user:'UltimaUnum', text: randomFrom(LATIN_URGING)});
+    ultimaTimer = setTimeout(collapseUltimaTick, 60000 + Math.random()*180000);
 }
 
 function scheduleCollapseGlitch(){
-  collapseGlitchTimer = setTimeout(function(){
-    if(currentLocation !== 'collapse' && currentLocation !== 'catacombs') return;
-    appEl.classList.add('site-glitch');
-    videoCol.classList.add('glitch-heavy');
-    playGlitchAudio();
-    setTimeout(function(){
-      if(currentLocation !== 'collapse' && currentLocation !== 'catacombs') return;
-      appEl.classList.remove('site-glitch');
-      videoCol.classList.remove('glitch-heavy');
-    }, 1200);
-    scheduleCollapseGlitch();
-  }, 30000 + Math.random()*90000);
+    collapseGlitchTimer = setTimeout(function () {
+        if (simulationPaused) return;
+
+        if(currentLocation !== 'collapse' && currentLocation !== 'catacombs') return;
+        appEl.classList.add('site-glitch');
+        videoCol.classList.add('glitch-heavy');
+        playGlitchAudio();
+        setTimeout(function(){
+          if(currentLocation !== 'collapse' && currentLocation !== 'catacombs') return;
+          appEl.classList.remove('site-glitch');
+          videoCol.classList.remove('glitch-heavy');
+        }, 1200);
+        scheduleCollapseGlitch();
+    }, 30000 + Math.random()*90000);
 }
 
 
 function driftViewers(){
   const loc = LOCATIONS[currentLocation];
   if(!loc) return;
-  // ease toward the LIVE attractor (not the location's fixed default directly), plus mood jitter
+
+    // ease toward the LIVE attractor (not the location's fixed default directly), plus mood jitter
   const pull = Math.round((viewerAttractor - viewers) * 0.04); // slow, like subs — no more instant jumps
-  let jitter;
-  if(currentMood === 'boring'){
-    // boring mode: a steady, noticeable bleed of viewers for as long as it's active
-    jitter = -(Math.floor(Math.random()*20) + 15);
-  } else {
-    const MOOD_TREND = {
-      hype: 1, cool: 1, fighting: 1,
-      sad: -1, rip: -1, scared: -1, panicked: -1, fake: -1,
-      hacking: 0, thinking: 0, weird: 0, spotted: 0, tuckin: 0, horny: 0, normal: 0
-    };
-    const trend = MOOD_TREND[currentMood] || 0;
-    if(trend > 0) jitter = Math.floor(Math.random()*25) + 5;
-    else if(trend < 0) jitter = -(Math.floor(Math.random()*30) + 8);
-    else jitter = Math.floor(Math.random()*10) - 3;
-  }
+
+
+  const MOOD_TREND = {
+    hype: 0.005,
+    cool: 0.005,
+    fighting: 0.005,
+
+    sad: 0.005,
+    rip: 0.005,
+    scared: 0.005,
+    panicked: 0.005,
+    fake: -0.005,
+
+    boring: -0.01
+  };
+
+  const trendRate = MOOD_TREND[currentMood] || 0;
+  const moodChange = Math.round(viewers * trendRate);
+
+  // Small audience-relative fluctuation instead of a fixed 8–37 people.
+  const noiseRange = Math.max(2, Math.round(viewers * 0.01));
+  const randomNoise = Math.round((Math.random() - 0.5) * noiseRange);
+
+  const jitter = moodChange + randomNoise;
+
   viewers = Math.max(0, viewers + pull + jitter);
 
   // subs: the ATTRACTOR only ever ratchets up (never down), but the actual number
@@ -2242,7 +2495,7 @@ function setLocation(key){
   } else {
     statusLoc.textContent = loc.label;
     statusMode.textContent = MOOD_LABELS[currentMood] || currentMood;
-    moodLabel.textContent = 'SIGNAL: STABLE · LOCATION: ' + loc.label.toUpperCase();
+    moodLabel.textContent = 'SIGNAL: STABLE';// · LOCATION: ' + loc.label.toUpperCase();
     appEl.classList.remove('site-glitch');
     videoCol.classList.remove('glitch-heavy');
     catacombsBanner.classList.remove('show');
@@ -2323,7 +2576,8 @@ function dismissDonation(){
 document.getElementById('don-close').addEventListener('click', dismissDonation);
 document.getElementById('don-dismiss').addEventListener('click', dismissDonation);
 
-function spawnParticles(count){
+function spawnParticles(count, fromRemote){
+  if(!fromRemote) broadcastLanEvent('effect', {name:'particles', count:count});
   for(let i=0;i<count;i++){
     const p = document.createElement('div');
     p.className = 'particle';
@@ -2362,6 +2616,7 @@ function fireDonation(name, amount, msg){
   document.getElementById('don-msg').textContent = msg || '';
   donBanner.className = 'show tier-' + tier;
   donBanner.id = 'donation-banner';
+  broadcastLanEvent('effect', {name:'donation-visual', tier:tier});
   playDonationChime(tier);
   if(tier >= 2){
     flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go');
@@ -2371,6 +2626,7 @@ function fireDonation(name, amount, msg){
     document.getElementById('stream').classList.remove('shake'); void document.getElementById('stream').offsetWidth;
     document.getElementById('stream').classList.add('shake');
   }
+  donationHideTimer = setTimeout(dismissDonation, tier === 3 ? 12000 : 8000);
   addMessage({user:name, text: '$'+amount + (msg ? ' — "'+msg+'"' : ''), type:'donation'});
   viewers += Math.floor(Math.random()*15)+3;
   updateViewerDisplay();
@@ -2454,7 +2710,7 @@ document.getElementById('ev-drop').addEventListener('click', function(){
   stopAllTimers();
   if(donationTimer) clearTimeout(donationTimer);
   donationTimer = null; // no donations while the stream is interrupted
-  chatEl.innerHTML = ''; // chat pauses and clears while the feed is cut
+  clearChat(); // chat pauses and clears while the feed is cut
   catacombsBanner.classList.remove('show'); // avoid stacking both banners at once
   interruptBanner.classList.add('show');
   playDropThud();
@@ -2470,7 +2726,7 @@ document.getElementById('ev-back').addEventListener('click', function(){
   applySignalBars(loc === 'collapse' ? 1 : loc === 'catacombs' ? 0 : 4);
   moodLabel.textContent = (loc === 'collapse') ? 'SIGNAL: CRITICAL · CHANNEL: RESTRICTED'
     : (loc === 'catacombs') ? 'SIGNAL: LOST · NO CONNECTION'
-    : 'SIGNAL: STABLE · LOCATION: ' + (LOCATIONS[loc] ? LOCATIONS[loc].label.toUpperCase() : '');
+    : 'SIGNAL: STABLE';
   stopAllTimers();
   if(loc === 'collapse'){
     collapseErrorTick();
@@ -2497,8 +2753,13 @@ document.getElementById('ev-back').addEventListener('click', function(){
   }
 });
 document.getElementById('ev-clear').addEventListener('click', function(){
-  chatEl.innerHTML = '';
+  clearChat();
 });
+
+function clearChat(fromRemote){
+  chatEl.innerHTML = '';
+  if(!fromRemote) broadcastLanEvent('clear-chat', null);
+}
 
 // panel toggle
 const controlPanel = document.getElementById('control');
@@ -2550,7 +2811,7 @@ if(isController && syncChannel){
   });
 }
 
-if(!isController && syncChannel){
+if(!isController && !isDisplay && syncChannel){
   syncChannel.onmessage = function(e){
     const msg = e.data;
     if(!msg) return;
@@ -2566,17 +2827,96 @@ if(!isController && syncChannel){
   };
 }
 
-if(!isController){
+if(!isController && !isDisplay){
   document.getElementById('popout-controller').addEventListener('click', function(){
     const base = location.href.split('?')[0];
     window.open(base + '?controller=1', 'SpektralController', 'width=420,height=920');
   });
 }
 
+function currentDisplayState(){
+  return {
+    viewers:viewers,
+    subs:subs,
+    totalDonated:totalDonated,
+    statusLoc:statusLoc.textContent,
+    statusMode:statusMode.textContent,
+    moodLabel:moodLabel.textContent,
+    soundEnabled:soundEnabled.checked,
+    signalBars:Array.from(signalBars).map(function(bar){ return bar.style.background; }),
+    appGlitch:appEl.classList.contains('site-glitch'),
+    videoGlitch:videoCol.classList.contains('glitch-heavy'),
+    interrupt:interruptBanner.classList.contains('show'),
+    catacombs:catacombsBanner.classList.contains('show'),
+    donation:{
+      className:donBanner.className,
+      amount:document.getElementById('don-amt').textContent,
+      from:document.getElementById('don-from').textContent,
+      message:document.getElementById('don-msg').textContent
+    }
+  };
+}
+
+function applyDisplayState(state){
+  viewers = state.viewers;
+  subs = state.subs;
+  totalDonated = state.totalDonated;
+  updateViewerDisplay();
+  donatedEl.textContent = '$' + totalDonated.toLocaleString();
+  statusLoc.textContent = state.statusLoc;
+  statusMode.textContent = state.statusMode;
+  moodLabel.textContent = state.moodLabel;
+  soundEnabled.checked = state.soundEnabled;
+  state.signalBars.forEach(function(background, index){
+    if(signalBars[index]) signalBars[index].style.background = background;
+  });
+  appEl.classList.toggle('site-glitch', state.appGlitch);
+  videoCol.classList.toggle('glitch-heavy', state.videoGlitch);
+  interruptBanner.classList.toggle('show', state.interrupt);
+  catacombsBanner.classList.toggle('show', state.catacombs);
+  donBanner.className = state.donation.className;
+  document.getElementById('don-amt').textContent = state.donation.amount;
+  document.getElementById('don-from').textContent = state.donation.from;
+  document.getElementById('don-msg').textContent = state.donation.message;
+}
+
+function applyDisplayEffect(effect){
+  if(effect.name === 'glitch-audio') playGlitchAudio(true);
+  else if(effect.name === 'donation-chime') playDonationChime(effect.tier, true);
+  else if(effect.name === 'drop-thud') playDropThud(true);
+  else if(effect.name === 'particles') spawnParticles(effect.count, true);
+  else if(effect.name === 'donation-visual'){
+    if(effect.tier >= 2){
+      flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go');
+    }
+    if(effect.tier === 3){
+      document.getElementById('stream').classList.remove('shake');
+      void document.getElementById('stream').offsetWidth;
+      document.getElementById('stream').classList.add('shake');
+    }
+  }
+}
+
+if(isDisplay){
+  const events = new EventSource('/events');
+  events.onmessage = function(e){
+    const event = JSON.parse(e.data);
+    if(event.type === 'chat') addMessage(event.payload, true);
+    else if(event.type === 'clear-chat') clearChat(true);
+    else if(event.type === 'state') applyDisplayState(event.payload);
+    else if(event.type === 'effect') applyDisplayEffect(event.payload);
+  };
+}
+
 // init
-if(!isController){
-  setLocation('bridge');
+if(!isController && !isDisplay){
+  broadcastLanEvent('clear-chat', null);
+  setLocation('prestream');
   scheduleDonationTick();
+  broadcastLanEvent('state', currentDisplayState());
+  setInterval(function(){
+    broadcastLanEvent('state', currentDisplayState());
+  }, 500);
 }
 </script>
 

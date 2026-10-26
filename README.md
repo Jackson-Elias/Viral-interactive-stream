@@ -1,14 +1,39 @@
 # Spektral Krew — Livestream Simulator
 
-A self-contained HTML tool for running **Viral** (the Call of Cthulhu scenario) with a live, reactive "streaming chat" as a prop at the table. Everything (emotes, sounds, images) is embedded directly in the file. Just open it in a browser.
+A self-contained HTML tool for running **Viral** (the Call of Cthulhu scenario) with a live, reactive "streaming chat" as a prop at the table. Everything (emotes, sounds, images) is embedded directly in the file.
 
 ## Quick start
 
-1. Download `spektral-krew-livestream.html`.
+1. Download `spektral-krew-livestream_final.html`.
 2. Open it in Chrome (recommended — see the dual-screen note below).
 3. You'll see a stream layout on the left/center (chat + a night-vision video panel) and a control panel on the right.
 
 That's it for solo/single-screen use. For the intended table setup, see below.
+
+## Host on your local network
+
+The included server makes the app available to devices on the same Wi-Fi network. It requires Python 3 and no additional packages.
+
+1. Open PowerShell in this folder.
+2. Run:
+
+   ```powershell
+   py server.py
+   ```
+
+3. Open the displayed **Main controls** address on the main laptop.
+4. Open the displayed **Audience display** address on the other computer or iPad.
+5. Press `Ctrl+C` in PowerShell when the game is over.
+
+Use a different port if needed:
+
+```powershell
+py server.py --port 8080
+```
+
+If Windows asks about network access, allow Python on **Private networks** only. Devices on guest Wi-Fi may be unable to reach each other because of client isolation.
+
+The main laptop owns the simulation and all controls. The audience URL ends in `/display` and follows the main laptop's chat, counters, banners, interruptions, glitches, and other visual effects. Open the main controls page before opening the audience display.
 
 ## Recommended setup: TV + laptop controller
 
@@ -24,7 +49,7 @@ If you only have one screen, you can also just use the single window and click *
 
 Chat is generated automatically and constantly adapts to two independent settings you control:
 
-- **Location** — sets the *baseline* chat: text pulled from a pool written specifically for wherever the investigators currently are (14 story locations, plus two special end-game states — see below). A few emotes get mixed in naturally.
+- **Location** — sets the *baseline* chat: text pulled from a pool written specifically for wherever the investigators currently are (a pre-stream state, 14 story locations, plus two special end-game states — see below). A few emotes get mixed in naturally.
 - **Mood** — an optional *overlay* on top of the location chat. Pick a mood and a second, faster stream of reactions (mostly emotes, some text) layers on top — the busier chat gets, the more obviously something is happening. 
   - **Normal** = no overlay, just the calm location chat.
   - **Hype, Cool, Panicked, Scared, Spotted Smth, Fighting, RIP, Sad** run at full speed.
